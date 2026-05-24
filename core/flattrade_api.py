@@ -157,11 +157,18 @@ class FlattradeAPI:
                 "api_secret": token_hash,
             }
             
+            logger.info("Authenticating with token hash for user: %s", self.user_id)
+            
+            # Flattrade expects form-urlencoded POST
             response = self.session.post(
                 self.auth_url,
-                json=payload,
+                data=payload,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
                 timeout=self.config.get("timeout", 10),
             )
+            
+            logger.info("Auth response status: %d", response.status_code)
+            logger.info("Auth response body: %s", response.text[:200])
             
             result = response.json()
             
