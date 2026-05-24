@@ -31,11 +31,13 @@ PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.flattrade_api import FlattradeAPI
+from core.auth_helper import AuthHelper
 from core.order_manager import OrderManager
 from core.risk_manager import RiskManager
 from core.money_manager import MoneyManager
 from core.market_data import MarketDataEngine
 from core.strategy_engine import StrategyEngine
+from core.connection_validator import ConnectionValidator
 
 logger = logging.getLogger("AlgoTrade")
 
@@ -164,9 +166,29 @@ class TradingSystem:
         # Subscribe to order updates
         self.api.subscribe_orders()
         
+        # Run system health check
+        validator = ConnectionValidator(self)
+        all_ok, report = validator.run_full_check()
+        
+        if not all_ok:
+            logger.warning("Some health checks failed - review before trading")
+            print("\n" + validator.get_summary_string() + "\n")
+        else:
+            print("\n" + validator.get_summary_string() + "\n")
+        
         self.is_running = True
         logger.info("Trading system connected and ready")
         return True
+
+    def verify_system(self) -> Tuple[bool, str]:
+        """
+        Run system verification without connecting.
+        Use this to check if credentials and config are valid.
+        """
+        from typing import Tuple
+        validator = ConnectionValidator(self)
+        all_ok, report = validator.run_full_check()
+        return all_ok, validator.get_summary_string()
 
     # =========================================================================
     # TRADING OPERATIONS
@@ -365,6 +387,7 @@ def main():
     parser.add_argument("--config", type=str, help="Path to config file")
     parser.add_argument("--headless", action="store_true", help="Run without GUI")
     parser.add_argument("--token", type=str, help="API request token")
+    parser.add_argument("--verify", action="store_true", help="Run system verification only")
     args = parser.parse_args()
     
     # Load configuration
@@ -385,20 +408,43 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
+    # Verify-only mode
+    if args.verify:
+        logger.info("Running system verification...")
+        ok, summary = trading_system.verify_system()
+        print(summary)
+        sys.exit(0 if ok else 1)
+    
+    # Authentication
+    request_token = args.token
+    if not request_token:
+        # Launch browser-based login
+        auth = AuthHelper(config.get("account", {}))
+        logger.info("No token provided. Launching browser login...")
+        request_token = auth.login_via_browser()
+        
+        if not request_token:
+            logger.error("Authentication failed! Could not obtain token.")
+            logger.error("You can also pass token manually: python main.py --token YOUR_TOKEN")
+            sys.exit(1)
+    
+    # Connect and validate
+    if not trading_system.connect(request_token):
+        logger.error("Failed to connect to Flattrade. Exiting.")
+        sys.exit(1)
+    
     if args.headless:
         # Headless mode - strategy only
-        logger.info("Running in headless mode")
-        if args.token:
-            trading_system.connect(args.token)
-            trading_system.start_strategy("full_auto")
-            
-            # Keep running
-            import time
-            try:
-                while trading_system.is_running:
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                trading_system.shutdown()
+        logger.info("Running in headless mode (full auto)")
+        trading_system.start_strategy("full_auto")
+        
+        # Keep running
+        import time
+        try:
+            while trading_system.is_running:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            trading_system.shutdown()
     else:
         # GUI mode
         from PyQt5.QtWidgets import QApplication
@@ -411,7 +457,6 @@ def main():
         dashboard.show()
         
         logger.info("Dashboard launched - Ready for trading")
-        logger.info("Connect using: Settings > Authentication > Enter Token")
         
         sys.exit(app.exec_())
 
