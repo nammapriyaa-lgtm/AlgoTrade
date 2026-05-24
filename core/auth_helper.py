@@ -30,14 +30,25 @@ class TokenCallbackHandler(BaseHTTPRequestHandler):
     """HTTP handler to capture OAuth redirect with request token."""
     
     token = None
+    client_id = None
     
     def do_GET(self):
         """Handle redirect from Flattrade OAuth."""
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
         
+        # Accept token from either 'code' or 'request_token' parameter
+        token = None
         if "code" in params:
-            TokenCallbackHandler.token = params["code"][0]
+            token = params["code"][0]
+        elif "request_token" in params:
+            token = params["request_token"][0]
+        
+        if token:
+            TokenCallbackHandler.token = token
+            # Also capture client ID if present
+            if "client" in params:
+                TokenCallbackHandler.client_id = params["client"][0]
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
@@ -51,8 +62,17 @@ class TokenCallbackHandler(BaseHTTPRequestHandler):
             """
             self.wfile.write(response.encode())
         else:
-            self.send_response(400)
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
             self.end_headers()
+            response = """
+            <html><body style="background:#1a1a2e;color:#ef4444;
+            font-family:monospace;text-align:center;padding:50px;">
+            <h1>Authentication Failed</h1>
+            <p>No token received. Please try again.</p>
+            </body></html>
+            """
+            self.wfile.write(response.encode())
     
     def log_message(self, format, *args):
         """Suppress default logging."""
@@ -74,8 +94,9 @@ class AuthHelper:
         self.api_key = config.get("api_key", "")
         self.api_secret = config.get("api_secret", "")
         self.user_id = config.get("user_id", "")
-        self.redirect_port = 8765
-        self.redirect_uri = f"http://127.0.0.1:{self.redirect_port}/callback"
+        self.redirect_port = 5000
+        self.redirect_path = "/flattrade/callback"
+        self.redirect_uri = f"http://127.0.0.1:{self.redirect_port}{self.redirect_path}"
         
         # Flattrade auth URL
         self.auth_base_url = "https://auth.flattrade.in/"
@@ -108,10 +129,12 @@ class AuthHelper:
         
         # Start local server to capture redirect
         TokenCallbackHandler.token = None
+        TokenCallbackHandler.client_id = None
         server = HTTPServer(("127.0.0.1", self.redirect_port), TokenCallbackHandler)
         server.timeout = 120  # 2 minute timeout
         
         logger.info("Waiting for authentication callback on port %d...", self.redirect_port)
+        logger.info("Expected redirect: %s", self.redirect_uri)
         
         while TokenCallbackHandler.token is None:
             server.handle_request()
