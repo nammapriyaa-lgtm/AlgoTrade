@@ -168,7 +168,18 @@ class FlattradeAPI:
             )
             
             logger.info("Auth response status: %d", response.status_code)
-            logger.info("Auth response body: %s", response.text[:200])
+            logger.info("Auth response body: %s", response.text[:500] if response.text else "<EMPTY>")
+            
+            # Handle empty response
+            if not response.text or not response.text.strip():
+                logger.error("Empty response from auth server - token may be expired/used")
+                # Clear cached token since it's invalid
+                from pathlib import Path
+                cache_file = Path("config/.token_cache.json")
+                if cache_file.exists():
+                    cache_file.unlink()
+                    logger.info("Cleared invalid cached token")
+                return {"status": "error", "message": "Empty response - token expired. Please restart and login again."}
             
             result = response.json()
             
