@@ -305,30 +305,34 @@ class TradingSystem:
         self.risk_manager.update_pnl(unrealized)
 
     def _on_signal(self, signal):
-        """Handle new trading signal from strategy."""
+        """Handle new trading signal from strategy (already passed quality filter)."""
         mode = self.strategy.state.mode
         
         if mode == "full_auto":
-            # Auto-execute
+            # Signal already passed quality filter - execute!
             can_trade, reason = self.risk_manager.can_trade()
             if can_trade:
                 self._execute_signal(signal)
             else:
-                logger.info("Auto-signal blocked: %s", reason)
+                logger.info("Signal passed quality filter but BLOCKED by risk manager: %s", reason)
         elif mode == "semi_auto":
-            # Notify dashboard (signal display, sound alert)
-            logger.info("Signal generated (semi-auto): %s %s %s conf=%d%%",
-                       signal.signal_type.value, signal.instrument,
-                       signal.option_type, signal.confidence)
+            # Show on dashboard for manual confirmation
+            quality_grade = signal.factors.get("quality_grade", "?")
+            logger.info(
+                "SIGNAL READY [%s] (semi-auto): %s %s %s | Confidence=%d%% | "
+                "Waiting for user confirmation...",
+                quality_grade, signal.signal_type.value, signal.instrument,
+                signal.option_type, signal.confidence
+            )
 
     def _execute_signal(self, signal):
-        """Execute a trading signal."""
+        """Execute a trading signal with quality-adjusted position sizing."""
         if signal.signal_type.value.startswith("BUY"):
             action = "BUY"
         else:
             action = "SELL"
         
-        # Position sizing
+        # Position sizing from risk manager
         lots = self.risk_manager.calculate_position_size(
             entry_price=signal.entry_price,
             stop_loss_price=signal.stop_loss,
@@ -336,8 +340,21 @@ class TradingSystem:
         )
         
         # Apply money management multiplier
-        multiplier = self.money_manager.get_position_multiplier()
-        lots = max(1, int(lots * multiplier))
+        money_multiplier = self.money_manager.get_position_multiplier()
+        lots = max(1, int(lots * money_multiplier))
+        
+        # Apply QUALITY-BASED size multiplier (from Trade Quality Filter)
+        # A+ grade = 1.5x, A/B = 1.0x, C = 0.5x
+        quality_multiplier = signal.factors.get("size_multiplier", 1.0)
+        lots = max(1, int(lots * quality_multiplier))
+        
+        quality_grade = signal.factors.get("quality_grade", "?")
+        logger.info(
+            "EXECUTING signal [Quality: %s | Size: %dx lots | Multiplier: %.1fx]: "
+            "%s %s %s",
+            quality_grade, lots, quality_multiplier,
+            action, signal.instrument, signal.option_type
+        )
         
         self.execute_manual_trade(
             index=signal.instrument,

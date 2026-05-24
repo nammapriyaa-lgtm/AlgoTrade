@@ -118,7 +118,16 @@ class StrategyEngine:
         self._last_signal_time: Optional[datetime] = None
         self._min_signal_gap = 60  # seconds between signals
         
-        logger.info("StrategyEngine initialized | Mode: %s", self.state.mode)
+        # Trade Quality Filter (Golden Egg Detector)
+        from core.trade_quality_filter import TradeQualityFilter
+        self.quality_filter = TradeQualityFilter(config)
+        
+        # Quality statistics
+        self.signals_blocked = 0
+        self.golden_eggs_found = 0
+        self.spoiled_eggs_avoided = 0
+        
+        logger.info("StrategyEngine initialized | Mode: %s | Quality Filter: ACTIVE", self.state.mode)
 
     # =========================================================================
     # SIGNAL GENERATION
@@ -126,17 +135,18 @@ class StrategyEngine:
 
     def analyze_market(self, instrument: str = "NIFTY") -> Signal:
         """
-        Main analysis function - evaluates all factors and generates signal.
+        Main analysis function - evaluates all factors, applies quality filter,
+        and generates signal ONLY if it passes the golden egg test.
         
-        Combines:
-        - OI analysis score
-        - IV analysis score
-        - Trend/breadth score
-        - VWAP position score
-        - Volume analysis score
-        - Smart money flow score
+        Flow:
+        1. Calculate 6 factor scores
+        2. Generate composite score
+        3. If composite exceeds threshold → candidate signal
+        4. Run through Trade Quality Filter (10 checks)
+        5. Only pass signals graded B or above
+        6. Adjust position size based on grade (A+ = 1.5x, C = 0.5x)
         
-        Returns Signal with confidence level.
+        Returns Signal with confidence level (or NO_SIGNAL if blocked).
         """
         # Check cooldown
         if self._last_signal_time:
@@ -153,7 +163,6 @@ class StrategyEngine:
         flow_score = self._analyze_smart_flow(instrument)
         
         # Weighted composite score (-100 to +100)
-        # Positive = Bullish (Buy CE), Negative = Bearish (Buy PE)
         weights = {
             "oi": 0.25,
             "iv": 0.10,
@@ -172,8 +181,7 @@ class StrategyEngine:
             flow_score * weights["flow"]
         )
         
-        # Generate signal based on composite
-        signal = self._generate_signal(instrument, composite, {
+        factors = {
             "oi_score": oi_score,
             "iv_score": iv_score,
             "trend_score": trend_score,
@@ -181,14 +189,77 @@ class StrategyEngine:
             "volume_score": volume_score,
             "flow_score": flow_score,
             "composite": composite,
-        })
+        }
         
-        if signal.signal_type != SignalType.NO_SIGNAL:
-            self._last_signal_time = datetime.now()
-            self.state.signals_generated += 1
-            self.signal_history.append(signal)
-            self._notify_signal(signal)
+        # Generate candidate signal based on composite
+        signal = self._generate_signal(instrument, composite, factors)
         
+        # If no signal generated (score too weak), return immediately
+        if signal.signal_type == SignalType.NO_SIGNAL:
+            return signal
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # QUALITY FILTER GATE — This is where bad trades get blocked
+        # ═══════════════════════════════════════════════════════════════════
+        quality = self.quality_filter.assess_trade(
+            signal_data={"factors": factors, "composite": composite},
+            market_data=self.market_data,
+            instrument=instrument,
+        )
+        
+        # Decision: Take or reject?
+        take_trade, reason, size_multiplier = self.quality_filter.should_take_trade(
+            quality, mode=self.state.mode
+        )
+        
+        if not take_trade:
+            # BLOCKED — Spoiled egg detected
+            self.signals_blocked += 1
+            self.spoiled_eggs_avoided += 1
+            logger.info(
+                "SIGNAL BLOCKED by Quality Filter [%s]: %s | "
+                "Composite=%.1f but Quality=%d/100 | Reasons: %s",
+                quality.grade, instrument, composite,
+                quality.total_score, "; ".join(quality.rejection_reasons[:2])
+            )
+            return Signal(
+                signal_type=SignalType.NO_SIGNAL,
+                confidence=abs(composite),
+                reason=f"Quality Filter BLOCKED [{quality.grade}]: {reason}",
+                factors=factors,
+            )
+        
+        # PASSED — Golden egg confirmed!
+        if quality.is_golden:
+            self.golden_eggs_found += 1
+        
+        # Adjust signal with quality info
+        signal.confidence = min(quality.total_score, 100)
+        signal.reason = (
+            f"{signal.reason} | Quality: {quality.grade} ({quality.total_score}/100) "
+            f"| Size: {size_multiplier}x"
+        )
+        
+        # Store size multiplier for execution
+        signal.factors["quality_grade"] = quality.grade
+        signal.factors["quality_score"] = quality.total_score
+        signal.factors["size_multiplier"] = size_multiplier
+        signal.factors["quality_factors"] = quality.quality_factors
+        
+        # Update state
+        self._last_signal_time = datetime.now()
+        self.state.signals_generated += 1
+        self.signal_history.append(signal)
+        
+        logger.info(
+            "GOLDEN EGG CONFIRMED [%s] %s %s | Composite=%.1f | "
+            "Quality=%d/100 | Size=%.1fx | Factors aligned: %s",
+            quality.grade, signal.signal_type.value, instrument,
+            composite, quality.total_score, size_multiplier,
+            quality.quality_factors
+        )
+        
+        self._notify_signal(signal)
         return signal
 
 
@@ -197,10 +268,10 @@ class StrategyEngine:
         self, instrument: str, composite: float, factors: Dict
     ) -> Signal:
         """Generate trading signal from composite score."""
-        # Thresholds for signal generation
+        # Thresholds for signal generation (raised for quality)
         strong_threshold = 60
-        moderate_threshold = 40
-        weak_threshold = 25
+        moderate_threshold = 45
+        weak_threshold = 35  # Raised from 25 to reject weak signals early
         
         abs_score = abs(composite)
         
@@ -473,13 +544,20 @@ class StrategyEngine:
                 logger.error("Signal callback error: %s", str(e))
 
     def get_state(self) -> Dict[str, Any]:
-        """Get current strategy state."""
+        """Get current strategy state with quality filter stats."""
         return {
             "active": self.state.active,
             "mode": self.state.mode,
             "in_position": self.state.in_position,
             "signals_generated": self.state.signals_generated,
+            "signals_blocked": self.signals_blocked,
+            "golden_eggs": self.golden_eggs_found,
+            "spoiled_eggs_avoided": self.spoiled_eggs_avoided,
             "trades_taken": self.state.trades_taken,
+            "filter_efficiency": (
+                f"{self.signals_blocked}/{self.state.signals_generated + self.signals_blocked} blocked"
+                if (self.state.signals_generated + self.signals_blocked) > 0 else "N/A"
+            ),
             "last_signal": self.signal_history[-1].__dict__ if self.signal_history else None,
         }
 
