@@ -1,0 +1,209 @@
+# ============================================================================
+# FLATTRADE ALGOTRADE PLATFORM - MASTER CONFIGURATION
+# ============================================================================
+
+# --- ACCOUNT CONFIGURATION ---
+account:
+  user_id: ""
+  api_key: ""
+  api_secret: ""
+  totp_key: ""
+  client_code: ""
+  broker: "flattrade"
+  account_type: "individual"  # individual, huf, corporate
+  exchange_segments:
+    - "NSE"
+    - "NFO"
+    - "BFO"
+    - "MCX"
+
+# --- API CONFIGURATION ---
+api:
+  base_url: "https://piconnect.flattrade.in/PiConnectTP"
+  websocket_url: "wss://piconnect.flattrade.in/PiConnectWSTp/"
+  auth_url: "https://authapi.flattrade.in/trade/apitoken"
+  timeout: 10
+  max_retries: 3
+  retry_delay: 1.0
+  rate_limit_per_second: 10
+  heartbeat_interval: 30
+  reconnect_attempts: 5
+  reconnect_delay: 5
+
+# --- ORDER MANAGEMENT ---
+orders:
+  default_product_type: "I"  # I=Intraday, C=Delivery, M=Margin
+  default_order_type: "MKT"  # MKT, LMT, SL-LMT, SL-MKT
+  default_exchange: "NFO"
+  max_order_value: 500000
+  max_quantity_per_order: 1800
+  order_slicing_enabled: true
+  slice_quantity: 900
+  confirmation_required: true
+  auto_square_off_time: "15:15:00"
+  square_off_warning_time: "15:10:00"
+  order_freeze_quantity:
+    NIFTY: 1800
+    BANKNIFTY: 900
+    FINNIFTY: 1800
+  default_lots:
+    NIFTY: 1
+    BANKNIFTY: 1
+    FINNIFTY: 1
+  lot_sizes:
+    NIFTY: 25
+    BANKNIFTY: 15
+    FINNIFTY: 25
+
+# --- RISK MANAGEMENT ---
+risk_management:
+  # Capital & Exposure
+  total_capital: 500000
+  max_capital_per_trade: 0.10  # 10% of capital
+  max_daily_exposure: 0.50  # 50% of capital
+  max_open_positions: 5
+  max_open_orders: 10
+  
+  # Stop Loss Settings
+  stop_loss:
+    enabled: true
+    type: "percentage"  # percentage, points, atr
+    default_sl_percent: 30.0  # 30% of premium
+    trailing_sl_enabled: true
+    trailing_sl_percent: 20.0
+    trailing_activation_percent: 15.0
+    max_sl_percent: 50.0
+    min_sl_points: 5
+  
+  # Profit Targets
+  targets:
+    target_1_percent: 20.0
+    target_2_percent: 40.0
+    target_3_percent: 60.0
+    partial_exit_at_target_1: 0.50  # Exit 50% at T1
+    partial_exit_at_target_2: 0.25  # Exit 25% at T2
+    trail_remaining: true
+  
+  # Daily Limits
+  daily_limits:
+    max_daily_loss: 25000
+    max_daily_profit_target: 50000
+    max_trades_per_day: 20
+    max_consecutive_losses: 3
+    cooldown_after_consecutive_losses: 300  # seconds
+    max_drawdown_percent: 5.0
+  
+  # Circuit Breakers
+  circuit_breakers:
+    enabled: true
+    daily_loss_circuit: 30000
+    weekly_loss_circuit: 75000
+    monthly_loss_circuit: 150000
+    rapid_loss_circuit: 15000  # Loss in 5 minutes
+    rapid_loss_window: 300  # seconds
+    auto_resume: false
+  
+  # Position Sizing
+  position_sizing:
+    method: "fixed_risk"  # fixed_risk, kelly, optimal_f, fixed_lots
+    risk_per_trade_percent: 2.0
+    kelly_fraction: 0.25  # Quarter Kelly
+    min_lot_size: 1
+    max_lot_size: 10
+
+# --- MONEY MANAGEMENT ---
+money_management:
+  # Capital Allocation
+  allocation:
+    strategy_1_percent: 40.0
+    strategy_2_percent: 30.0
+    reserve_percent: 30.0
+  
+  # Compounding
+  compounding:
+    enabled: true
+    compound_frequency: "daily"  # daily, weekly, monthly
+    compound_threshold: 10000  # Min profit to compound
+    compound_percent: 50.0  # Compound 50% of profits
+    max_position_growth: 2.0  # Max 2x original size
+  
+  # Drawdown Recovery
+  drawdown_recovery:
+    reduce_size_at_drawdown: 5.0  # Reduce at 5% DD
+    size_reduction_factor: 0.5
+    recovery_threshold: 2.0  # Resume full size at 2% recovery
+    progressive_reduction: true
+  
+  # Profit Management
+  profit_management:
+    daily_target: 25000
+    weekly_target: 100000
+    monthly_target: 300000
+    scale_down_after_target: true
+    scale_down_factor: 0.5
+    withdraw_percent_monthly: 20.0
+
+# --- STRATEGY SETTINGS ---
+strategy:
+  # Primary Strategy - ATM Options
+  primary:
+    name: "ATM_Options_Scalper"
+    enabled: true
+    instruments: ["NIFTY", "BANKNIFTY"]
+    timeframes: ["1min", "3min", "5min", "15min"]
+    entry_logic: "market_depth_signal"
+    
+    # Signal Parameters
+    signals:
+      oi_change_threshold: 5.0  # percent
+      iv_threshold_high: 20.0
+      iv_threshold_low: 12.0
+      volume_spike_multiplier: 2.0
+      breadth_threshold: 60.0
+      vwap_deviation_percent: 0.5
+    
+    # ATM Selection
+    atm_selection:
+      strike_selection: "ATM"  # ATM, ITM1, OTM1
+      prefer_higher_oi: true
+      min_oi_threshold: 100000
+      max_spread_percent: 2.0
+  
+  # Automation Mode
+  automation:
+    mode: "semi_auto"  # full_auto, semi_auto, manual
+    require_confirmation: true
+    auto_exit_enabled: true
+    signal_alert_enabled: true
+    sound_alerts: true
+
+# --- DASHBOARD SETTINGS ---
+dashboard:
+  refresh_rate_ms: 500
+  theme: "dark"
+  layout: "professional"
+  panels:
+    - "market_overview"
+    - "option_chain"
+    - "oi_analysis"
+    - "greeks_panel"
+    - "trade_execution"
+    - "pnl_tracker"
+    - "risk_monitor"
+    - "order_book"
+  charts:
+    candle_count: 100
+    auto_scale: true
+    show_vwap: true
+    show_volume_profile: true
+
+# --- LOGGING ---
+logging:
+  level: "INFO"
+  file_logging: true
+  log_directory: "logs"
+  max_file_size_mb: 50
+  backup_count: 10
+  log_orders: true
+  log_signals: true
+  log_performance: true

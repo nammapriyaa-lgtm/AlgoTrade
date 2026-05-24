@@ -1,0 +1,56 @@
+# Flattrade AlgoTrade Platform - Dependencies
+# Core API & Networking
+requests>=2.31.0
+websocket-client>=1.6.4
+aiohttp>=3.9.0
+asyncio-mqtt>=0.16.2
+
+# GUI Framework
+PyQt5>=5.15.9
+pyqtgraph>=0.13.3
+pyqtchart>=5.15.6
+
+# Data Processing & Analytics
+numpy>=1.24.0
+pandas>=2.1.0
+scipy>=1.11.0
+
+# Technical Analysis
+ta-lib>=0.4.28
+pandas-ta>=0.3.14b
+
+# Options Greeks Calculation
+py_vollib>=1.0.1
+mibian>=0.1.3
+
+# Database & Caching
+sqlalchemy>=2.0.0
+redis>=5.0.0
+
+# Scheduling & Threading
+apscheduler>=3.10.4
+concurrent-log-handler>=0.9.24
+
+# Security & Encryption
+cryptography>=41.0.0
+python-dotenv>=1.0.0
+
+# Logging & Monitoring
+loguru>=0.7.2
+psutil>=5.9.0
+
+# Date/Time
+python-dateutil>=2.8.2
+pytz>=2023.3
+
+# Configuration
+pyyaml>=6.0.1
+toml>=0.10.2
+
+# Performance
+ujson>=5.8.0
+orjson>=3.9.0
+
+# Charting
+matplotlib>=3.8.0
+mplfinance>=0.12.10b0
