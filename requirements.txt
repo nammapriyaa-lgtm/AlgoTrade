@@ -13,9 +13,8 @@ numpy>=1.24.0
 pandas>=2.1.0
 scipy>=1.11.0
 
-# Technical Analysis (no C dependency alternatives)
+# Technical Analysis (pure Python - no C compiler needed)
 ta>=0.11.0
-tulipy>=0.4.0
 
 # Database & Caching
 sqlalchemy>=2.0.0
