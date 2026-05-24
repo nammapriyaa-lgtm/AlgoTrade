@@ -180,12 +180,14 @@ class TradingSystem:
         logger.info("Trading system connected and ready")
         return True
 
-    def verify_system(self) -> Tuple[bool, str]:
+    def verify_system(self):
         """
         Run system verification without connecting.
         Use this to check if credentials and config are valid.
+        
+        Returns:
+            (all_passed: bool, summary_string: str)
         """
-        from typing import Tuple
         validator = ConnectionValidator(self)
         all_ok, report = validator.run_full_check()
         return all_ok, validator.get_summary_string()
